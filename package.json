@@ -1,0 +1,19 @@
+{
+  "name": "spine-previewer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test": "node --test src/*.test.js",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@esotericsoftware/spine-pixi-v8": "~4.2.0",
+    "pixi.js": "^8.16.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  }
+}

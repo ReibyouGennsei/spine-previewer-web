@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spine 预览器</title>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar left">
+        <details class="panel intro-panel">
+          <summary>
+            <span>Spine 预览器</span>
+            <span class="summary-caret">展开</span>
+          </summary>
+          <p class="muted">上传 skeleton、atlas、png 后即可预览。点击模型部位可查看 slot / bone / attachment，并调整骨骼变换。</p>
+        </details>
+
+        <div class="panel">
+          <h2>资源加载</h2>
+          <label class="field">
+            <span>Skeleton 文件</span>
+            <input id="skeletonFile" type="file" accept=".json,.skel,.txt,.bytes" />
+          </label>
+          <label class="field">
+            <span>Atlas 文件</span>
+            <input id="atlasFile" type="file" accept=".atlas,.txt" />
+          </label>
+          <label class="field">
+            <span>图片文件</span>
+            <input id="imageFiles" type="file" accept=".png,.jpg,.jpeg,.webp" multiple />
+          </label>
+          <label class="field">
+            <span>导出 scale</span>
+            <input id="skeletonScale" type="number" value="1" step="0.01" />
+          </label>
+          <button id="loadBtn" class="primary">加载 Spine</button>
+          <div class="resource-info">
+            <div id="resourceSummary" class="summary"></div>
+            <div id="status" class="status">等待加载资源…</div>
+          </div>
+        </div>
+
+        <details class="panel collapse-panel playback-panel">
+          <summary>
+            <h2>播放控制</h2>
+            <span class="summary-caret">展开</span>
+          </summary>
+          <div class="collapse-content">
+            <label class="field">
+              <span>动画</span>
+              <select id="animationSelect"></select>
+            </label>
+            <label class="field">
+              <span>皮肤</span>
+              <select id="skinSelect"></select>
+            </label>
+            <div class="row">
+              <button id="playPauseBtn">暂停</button>
+              <button id="refitBtn">重新居中</button>
+              <button id="resetPoseBtn">重置姿态</button>
+            </div>
+            <label class="check">
+              <input id="loopCheckbox" type="checkbox" checked />
+              <span>循环播放</span>
+            </label>
+            <label class="check">
+              <input id="pauseOnSelectCheckbox" type="checkbox" checked />
+              <span>点击部位时自动暂停</span>
+            </label>
+            <label class="check">
+              <input id="showBoundsCheckbox" type="checkbox" />
+              <span>显示全部 Bounding Box</span>
+            </label>
+          </div>
+        </details>
+
+        <details class="panel collapse-panel usage-panel">
+          <summary>
+            <h2>使用说明</h2>
+            <span class="summary-caret">展开</span>
+          </summary>
+          <div class="collapse-content">
+            <ul class="usage-list">
+              <li>依次选择 skeleton、atlas 和对应图片后加载。</li>
+              <li>点击模型部位可查看 slot、bone 和 attachment。</li>
+              <li>隐藏 Slots 可用于导出拆分图层。</li>
+            </ul>
+          </div>
+        </details>
+      </aside>
+
+      <main class="stage-wrap">
+        <section class="panel stage-controls" aria-label="舞台控制">
+          <div class="panel-title-row">
+            <h2>舞台控制</h2>
+            <button id="resetViewBtn" type="button">重置视图</button>
+          </div>
+          <label class="range-field">
+            <span>缩放 <strong id="stageScaleValue">100%</strong></span>
+            <input id="stageScaleInput" type="range" min="0.05" max="20" step="0.01" value="1" disabled />
+          </label>
+          <label class="range-field">
+            <span>旋转 <strong id="stageRotationValue">0deg</strong></span>
+            <input id="stageRotationInput" type="range" min="-180" max="180" step="1" value="0" disabled />
+          </label>
+        </section>
+        <div id="viewport"></div>
+        <details class="panel info-panel info-drawer">
+          <summary aria-label="展开信息面板">
+            <span>信息面板</span>
+          </summary>
+          <div class="info-content">
+            <h2>信息面板</h2>
+            <div class="info-panel-stack">
+              <div id="selectionInfo" class="info-grid empty">
+                <div>尚未选中任何部位</div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details class="panel transform-panel bone-drawer">
+          <summary aria-label="展开 Bone 调整">
+            <span>Bone</span>
+          </summary>
+          <div class="bone-content">
+            <div class="panel-title-row">
+              <h2>Bone 调整</h2>
+              <p class="muted small">调整当前 slot 对应的 bone。</p>
+            </div>
+            <div class="transform-grid">
+              <label class="field">
+                <span>X</span>
+                <input data-transform="x" type="number" step="0.1" disabled />
+              </label>
+              <label class="field">
+                <span>Y</span>
+                <input data-transform="y" type="number" step="0.1" disabled />
+              </label>
+              <label class="field">
+                <span>Rotation</span>
+                <input data-transform="rotation" type="number" step="0.1" disabled />
+              </label>
+              <label class="field">
+                <span>Scale X</span>
+                <input data-transform="scaleX" type="number" step="0.01" disabled />
+              </label>
+              <label class="field">
+                <span>Scale Y</span>
+                <input data-transform="scaleY" type="number" step="0.01" disabled />
+              </label>
+            </div>
+            <div class="row">
+              <button id="applyTransformBtn" disabled>应用修改</button>
+              <button id="resetBoneBtn" disabled>重置 Bone</button>
+              <button id="clearSelectionBtn" disabled>取消选中</button>
+            </div>
+          </div>
+        </details>
+      </main>
+
+      <aside class="sidebar right">
+        <div class="panel export-panel">
+          <h2>图像导出</h2>
+          <div class="export-actions">
+            <button id="exportCurrentBtn" class="primary">导出当前 PNG</button>
+            <button id="exportSetupBtn">导出原始 PNG</button>
+          </div>
+        </div>
+
+        <div class="panel selected-slot-panel">
+          <h2>选中 Slot</h2>
+          <div id="selectedSlotSummary" class="summary selected-slot-summary">尚未选中 slot</div>
+        </div>
+
+        <div class="panel slots-panel">
+          <div class="panel-title-row">
+            <h2>Slots</h2>
+            <span id="slotSearchCount" class="count-pill">0</span>
+          </div>
+          <label class="field search-field">
+            <input id="slotSearchInput" type="search" placeholder="搜索 Slot / Bone" />
+          </label>
+          <label class="slot-bulk-toggle">
+            <input id="filteredSlotsToggle" type="checkbox" disabled />
+            <span id="filteredSlotsToggleText">搜索结果：无匹配</span>
+          </label>
+          <div id="slotList" class="slot-list empty">
+            <div>No slots loaded</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

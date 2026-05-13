@@ -1,6 +1,7 @@
 import './style.css';
 import { Application, Assets, Cache, Graphics, Rectangle, TextureSource } from 'pixi.js';
 import * as spine from '@esotericsoftware/spine-pixi-v8';
+import { injectSpeedInsights } from '@vercel/speed-insights';
 import { getPngExportTarget } from './exportTarget.js';
 import { slotMatchesSearch } from './slotSearch.js';
 import { applyBulkSlotVisibility, getBulkSlotVisibilityState } from './slotVisibility.js';
@@ -72,6 +73,9 @@ const state = {
     startPosition: null,
   },
 };
+
+// Initialize Vercel Speed Insights
+injectSpeedInsights();
 
 boot().catch((error) => {
   console.error(error);

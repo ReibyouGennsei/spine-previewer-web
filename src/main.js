@@ -1,4 +1,5 @@
 import './style.css';
+import { inject } from '@vercel/analytics';
 import { Application, Assets, Cache, Graphics, Rectangle, TextureSource } from 'pixi.js';
 import * as spine from '@esotericsoftware/spine-pixi-v8';
 import { getPngExportTarget } from './exportTarget.js';
@@ -15,6 +16,9 @@ import {
   radiansToDegrees,
   roundViewportValue,
 } from './viewportTransform.js';
+
+// Initialize Vercel Web Analytics
+inject();
 
 const els = {
   viewport: document.getElementById('viewport'),

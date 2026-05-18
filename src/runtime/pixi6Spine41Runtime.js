@@ -50,6 +50,19 @@ export const runtime = {
   updateWorldTransform(skeleton) {
     skeleton.updateWorldTransform();
   },
+  getPointerButton(event) {
+    return event.button
+      ?? event.data?.button
+      ?? event.data?.originalEvent?.button
+      ?? 0;
+  },
+  getPointerId(event) {
+    return event.pointerId
+      ?? event.data?.pointerId
+      ?? event.data?.identifier
+      ?? event.data?.originalEvent?.pointerId
+      ?? 0;
+  },
   getPointerGlobal(event) {
     return event.global || event.data?.global;
   },

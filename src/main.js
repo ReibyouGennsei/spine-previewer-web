@@ -214,19 +214,23 @@ function bindUI() {
       bone[input.dataset.transform] = Number(input.value || 0);
     }
     updateWorldTransform();
+    state.runtime.updateSpineObject?.(state.spineObject, 0);
     drawOverlay();
     refreshSelectionPanel();
     setStatus(`已应用 Bone：${bone.data.name}`, 'ok');
+    renderCurrentFrame();
   });
 
   els.resetBoneBtn.addEventListener('click', () => {
     if (!state.selected?.slot?.bone) return;
     state.selected.slot.bone.setToSetupPose();
     updateWorldTransform();
+    state.runtime.updateSpineObject?.(state.spineObject, 0);
     syncTransformInputsFromSelection();
     drawOverlay();
     refreshSelectionPanel();
     setStatus(`已重置 Bone：${state.selected.slot.bone.data.name}`, 'ok');
+    renderCurrentFrame();
   });
 
   els.clearSelectionBtn.addEventListener('click', clearSelection);
@@ -406,7 +410,9 @@ function forcePoseRefresh() {
   state.spineObject.state.apply(state.spineObject.skeleton);
   applySlotVisibility();
   updateWorldTransform();
+  state.runtime.updateSpineObject?.(state.spineObject, 0);
   drawOverlay();
+  renderCurrentFrame();
 }
 
 function fitSpineToView({ resetRotation = false } = {}) {
@@ -440,6 +446,7 @@ function fitSpineToView({ resetRotation = false } = {}) {
 
   drawOverlay();
   syncStageControls();
+  renderCurrentFrame();
 }
 
 function onViewportWheel(event) {
@@ -465,6 +472,7 @@ function onViewportWheel(event) {
 
   drawOverlay();
   syncStageControls();
+  renderCurrentFrame();
 }
 
 function setPlayback(playing) {
@@ -478,6 +486,12 @@ function setPlayback(playing) {
 function updateWorldTransform() {
   if (state.spineObject?.skeleton) {
     state.runtime.updateWorldTransform(state.spineObject.skeleton);
+  }
+}
+
+function renderCurrentFrame() {
+  if (state.app && state.runtime?.renderApplication) {
+    state.runtime.renderApplication(state.app);
   }
 }
 
@@ -516,6 +530,7 @@ function onStagePointerMove(event) {
   });
   state.spineObject.position.set(position.x, position.y);
   drawOverlay();
+  renderCurrentFrame();
 }
 
 function onStagePointerUp(event) {
@@ -541,6 +556,7 @@ function onStagePointerUp(event) {
   syncTransformInputsFromSelection();
   refreshTransformPanel();
   drawOverlay();
+  renderCurrentFrame();
 }
 
 function onStagePointerUpOutside(event) {
@@ -818,8 +834,10 @@ function onSlotToggleChange(event) {
 
   applySlotVisibility();
   updateWorldTransform();
+  state.runtime.updateSpineObject?.(state.spineObject, 0);
   refreshSlotList();
   drawOverlay();
+  renderCurrentFrame();
   setStatus(`Slot visibility updated: ${slotName}`, 'ok');
 }
 
@@ -834,8 +852,10 @@ function onFilteredSlotsToggleChange(event) {
   }
   applySlotVisibility();
   updateWorldTransform();
+  state.runtime.updateSpineObject?.(state.spineObject, 0);
   refreshSlotList();
   drawOverlay();
+  renderCurrentFrame();
   setStatus(`${visible ? 'Shown' : 'Hidden'} ${filteredSlots.length} filtered slots`, 'ok');
 }
 
@@ -1043,6 +1063,7 @@ function applyStageScale(scale) {
   state.spineObject.position.set(position.x, position.y);
   drawOverlay();
   syncStageControls();
+  renderCurrentFrame();
 }
 
 function applyStageRotation(rotationDegrees) {
@@ -1060,6 +1081,7 @@ function applyStageRotation(rotationDegrees) {
   state.spineObject.position.set(position.x, position.y);
   drawOverlay();
   syncStageControls();
+  renderCurrentFrame();
 }
 
 function resetStageView() {

@@ -1,6 +1,5 @@
 import './style.css';
 import { getPngExportTarget } from './exportTarget.js';
-import { runRuntimeFrameLoop } from './runtime/runtimeFrameLoop.js';
 import { DEFAULT_RUNTIME_ID, loadRuntime, RUNTIME_OPTIONS } from './runtime/runtimeRegistry.js';
 import { slotMatchesSearch } from './slotSearch.js';
 import { applyBulkSlotVisibility, getBulkSlotVisibilityState } from './slotVisibility.js';
@@ -136,25 +135,10 @@ async function switchRuntime(runtimeId) {
 
   app.ticker.add(() => {
     if (!state.spineObject || !state.overlay) return;
-    const syncFrameState = () => {
-      applySlotVisibility();
-      if (state.selected || els.showBoundsCheckbox.checked) {
-        drawOverlay();
-      }
-    };
-
-    if (state.runtime?.usesManualTicker) {
-      runRuntimeFrameLoop({
-        runtime: state.runtime,
-        app,
-        spineObject: state.spineObject,
-        playing: state.playing,
-        beforeRender: syncFrameState,
-      });
-      return;
+    applySlotVisibility();
+    if (state.selected || els.showBoundsCheckbox.checked) {
+      drawOverlay();
     }
-
-    syncFrameState();
   });
 
   state.runtime = runtime;
@@ -494,7 +478,7 @@ function onViewportWheel(event) {
 function setPlayback(playing) {
   state.playing = playing;
   if (state.spineObject) {
-    state.spineObject.autoUpdate = state.runtime?.usesManualTicker ? false : playing;
+    state.spineObject.autoUpdate = playing;
   }
   els.playPauseBtn.textContent = playing ? '暂停' : '播放';
 }

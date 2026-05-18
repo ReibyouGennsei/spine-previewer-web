@@ -6,7 +6,6 @@ test('Pixi 6 runtime exposes hooks to update a loaded spine object and flush a r
   const runtime = await loadRuntime('spine41-pixi6');
   const calls = [];
 
-  assert.equal(runtime.usesManualTicker, true);
   runtime.updateSpineObject({ update: (delta) => calls.push(['update', delta]) }, 0);
   runtime.renderApplication({ render: () => calls.push(['render']) });
 

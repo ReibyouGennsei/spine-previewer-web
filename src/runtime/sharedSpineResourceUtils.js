@@ -24,7 +24,6 @@ export function buildAtlasImageFileMap(pageNames, imageFiles) {
   const files = [...(imageFiles || [])];
   const byName = new Map(files.map((file) => [file.name.toLowerCase(), file]));
   const byBase = new Map(files.map((file) => [baseName(file.name), file]));
-  const byStem = new Map(files.map((file) => [stemName(file.name), file]));
 
   if (!pageNames.length) {
     if (files[0]) {
@@ -35,9 +34,7 @@ export function buildAtlasImageFileMap(pageNames, imageFiles) {
   }
 
   for (const pageName of pageNames) {
-    let file = byName.get(pageName.toLowerCase())
-      || byBase.get(baseName(pageName))
-      || byStem.get(stemName(pageName));
+    let file = byName.get(pageName.toLowerCase()) || byBase.get(baseName(pageName));
     if (!file) {
       file = files[0];
       warnings.push(`Atlas page "${pageName}" did not match an uploaded image, so "${file?.name || 'the first image'}" will be used.`);
@@ -74,8 +71,4 @@ export async function readSkeletonAsset(file) {
 
 function baseName(name) {
   return String(name).split('/').pop().split('\\').pop().toLowerCase();
-}
-
-function stemName(name) {
-  return baseName(name).replace(/\.[^.]+$/, '');
 }

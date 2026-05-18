@@ -483,13 +483,13 @@ function updateWorldTransform() {
 
 function onStagePointerDown(event) {
   if (!state.spineObject) return;
-  if (state.runtime.getPointerButton(event) !== 0) return;
+  if (event.button !== 0) return;
   const global = state.runtime.getPointerGlobal(event);
   if (!global) return;
 
   state.pan.active = true;
   state.pan.dragging = false;
-  state.pan.pointerId = state.runtime.getPointerId(event);
+  state.pan.pointerId = event.pointerId;
   state.pan.startPoint = { x: global.x, y: global.y };
   state.pan.startPosition = {
     x: state.spineObject.position.x,
@@ -548,7 +548,7 @@ function onStagePointerUpOutside(event) {
 }
 
 function isActivePanEvent(event) {
-  return state.pan.active && state.pan.pointerId === state.runtime.getPointerId(event);
+  return state.pan.active && state.pan.pointerId === event.pointerId;
 }
 
 function resetPanState() {

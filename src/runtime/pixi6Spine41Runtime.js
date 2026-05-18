@@ -19,12 +19,17 @@ import {
 export const runtime = {
   id: 'spine41-pixi6',
   label: 'Spine 4.1 / PixiJS 6.5.10',
+  usesManualTicker: true,
   async createApplication({ resizeTo }) {
-    return new Application({
+    const app = new Application({
       resizeTo,
       antialias: true,
       backgroundAlpha: 0,
+      autoStart: false,
     });
+    app.ticker.remove(app.render, app);
+    app.start();
+    return app;
   },
   getCanvas(app) {
     return app.view;
@@ -118,14 +123,15 @@ export const runtime = {
     parser.scale = skeletonScale;
 
     let spineData;
+    let spineObject;
     try {
       spineData = parser.readSkeletonData(skeletonAsset);
+      spineObject = new Spine(spineData);
     } catch (error) {
       throw wrapSpineLoadError(error);
     }
 
-    const spineObject = new Spine(spineData);
-    spineObject.autoUpdate = true;
+    spineObject.autoUpdate = false;
 
     return { spineObject, warnings };
   },
@@ -163,10 +169,26 @@ function loadBaseTexture(url) {
 }
 
 function createTextureAtlas(atlasText, baseTextures) {
-  return new Promise((resolve) => {
-    new TextureAtlas(atlasText, (pageName, callback) => {
-      callback(baseTextures.get(pageName) || baseTextures.get('default') || null);
-    }, resolve);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      callback(value);
+    };
+
+    try {
+      new TextureAtlas(atlasText, (pageName, callback) => {
+        const texture = baseTextures.get(pageName) || baseTextures.get('default');
+        if (!texture) {
+          settle(reject, new Error(`Atlas page "${pageName}" did not match any loaded image texture.`));
+          return;
+        }
+        callback(texture);
+      }, (atlas) => settle(resolve, atlas));
+    } catch (error) {
+      settle(reject, error);
+    }
   });
 }
 

@@ -32,6 +32,16 @@ test('buildAtlasImageFileMap matches by exact file name and base name', () => {
   assert.deepEqual(result.warnings, []);
 });
 
+test('buildAtlasImageFileMap matches atlas pages by file stem when the uploaded extension differs', () => {
+  const result = buildAtlasImageFileMap(
+    ['aimisi.png'],
+    [{ name: 'textures\\aimisi.webp' }],
+  );
+
+  assert.equal(result.fileMap.get('aimisi.png').name, 'textures\\aimisi.webp');
+  assert.deepEqual(result.warnings, []);
+});
+
 test('buildAtlasImageFileMap falls back to the first image when a page is missing', () => {
   const result = buildAtlasImageFileMap(['missing.png'], [{ name: 'fallback.png' }]);
 

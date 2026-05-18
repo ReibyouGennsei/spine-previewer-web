@@ -43,12 +43,6 @@ export const runtime = {
   updateWorldTransform(skeleton) {
     skeleton.updateWorldTransform(spine.Physics.update);
   },
-  updateSpineObject(spineObject, delta = 0) {
-    spineObject?.update?.(delta);
-  },
-  renderApplication(app) {
-    app?.render?.();
-  },
   getPointerButton(event) {
     return event.button
       ?? event.data?.button

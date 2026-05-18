@@ -1,7 +1,6 @@
 import './style.css';
-import { Application, Assets, Cache, Graphics, Rectangle, TextureSource } from 'pixi.js';
-import * as spine from '@esotericsoftware/spine-pixi-v8';
 import { getPngExportTarget } from './exportTarget.js';
+import { DEFAULT_RUNTIME_ID, loadRuntime, RUNTIME_OPTIONS } from './runtime/runtimeRegistry.js';
 import { slotMatchesSearch } from './slotSearch.js';
 import { applyBulkSlotVisibility, getBulkSlotVisibilityState } from './slotVisibility.js';
 import {
@@ -21,6 +20,7 @@ const els = {
   skeletonFile: document.getElementById('skeletonFile'),
   atlasFile: document.getElementById('atlasFile'),
   imageFiles: document.getElementById('imageFiles'),
+  runtimeSelect: document.getElementById('runtimeSelect'),
   skeletonScale: document.getElementById('skeletonScale'),
   loadBtn: document.getElementById('loadBtn'),
   animationSelect: document.getElementById('animationSelect'),
@@ -55,6 +55,8 @@ const els = {
 
 const state = {
   app: null,
+  runtime: null,
+  runtimeId: null,
   spineObject: null,
   overlay: null,
   bounds: null,
@@ -79,36 +81,13 @@ boot().catch((error) => {
 });
 
 async function boot() {
-  const app = new Application();
-  await app.init({
-    resizeTo: els.viewport,
-    antialias: true,
-    backgroundAlpha: 0,
-    preference: 'webgl',
-  });
-
-  els.viewport.appendChild(app.canvas);
-  app.stage.eventMode = 'static';
-  app.stage.hitArea = new Rectangle(0, 0, els.viewport.clientWidth, els.viewport.clientHeight);
-  app.stage.on('pointerdown', onStagePointerDown);
-  app.stage.on('pointermove', onStagePointerMove);
-  app.stage.on('pointerup', onStagePointerUp);
-  app.stage.on('pointerupoutside', onStagePointerUpOutside);
-  app.canvas.addEventListener('wheel', onViewportWheel, { passive: false });
-
-  state.app = app;
-
-  app.ticker.add(() => {
-    if (!state.spineObject || !state.overlay) return;
-    applySlotVisibility();
-    if (state.selected || els.showBoundsCheckbox.checked) {
-      drawOverlay();
-    }
-  });
+  setupRuntimeSelector();
+  await switchRuntime(els.runtimeSelect.value);
 
   const resizeObserver = new ResizeObserver(() => {
-    if (!state.app) return;
-    state.app.stage.hitArea = new Rectangle(0, 0, els.viewport.clientWidth, els.viewport.clientHeight);
+    if (!state.app || !state.runtime) return;
+    const hitArea = state.runtime.createRectangle(0, 0, els.viewport.clientWidth, els.viewport.clientHeight);
+    state.runtime.configureStage(state.app.stage, hitArea);
     if (state.spineObject) fitSpineToView();
   });
   resizeObserver.observe(els.viewport);
@@ -121,11 +100,75 @@ async function boot() {
   refreshSlotList();
 }
 
+function setupRuntimeSelector() {
+  els.runtimeSelect.innerHTML = '';
+  for (const option of RUNTIME_OPTIONS) {
+    const item = document.createElement('option');
+    item.value = option.id;
+    item.textContent = option.label;
+    els.runtimeSelect.appendChild(item);
+  }
+  els.runtimeSelect.value = DEFAULT_RUNTIME_ID;
+}
+
+async function switchRuntime(runtimeId) {
+  if (state.runtimeId === runtimeId && state.runtime && state.app) return;
+
+  cleanupCurrentSpine();
+  destroyCurrentApplication();
+  resetPanState();
+
+  const runtime = await loadRuntime(runtimeId);
+  const app = await runtime.createApplication({ resizeTo: els.viewport });
+  const canvas = runtime.getCanvas(app);
+
+  els.viewport.replaceChildren(canvas);
+  runtime.configureStage(
+    app.stage,
+    runtime.createRectangle(0, 0, els.viewport.clientWidth, els.viewport.clientHeight),
+  );
+  app.stage.on('pointerdown', onStagePointerDown);
+  app.stage.on('pointermove', onStagePointerMove);
+  app.stage.on('pointerup', onStagePointerUp);
+  app.stage.on('pointerupoutside', onStagePointerUpOutside);
+  canvas.addEventListener('wheel', onViewportWheel, { passive: false });
+
+  app.ticker.add(() => {
+    if (!state.spineObject || !state.overlay) return;
+    applySlotVisibility();
+    if (state.selected || els.showBoundsCheckbox.checked) {
+      drawOverlay();
+    }
+  });
+
+  state.runtime = runtime;
+  state.runtimeId = runtimeId;
+  state.app = app;
+  syncStageControls();
+}
+
+function destroyCurrentApplication() {
+  if (!state.app || !state.runtime) return;
+  state.runtime.destroyApplication(state.app);
+  state.app = null;
+}
+
 function bindUI() {
   els.loadBtn.addEventListener('click', () => loadSpine().catch(handleLoadError));
   els.skeletonFile.addEventListener('change', refreshResourceSummary);
   els.atlasFile.addEventListener('change', refreshResourceSummary);
   els.imageFiles.addEventListener('change', refreshResourceSummary);
+  els.runtimeSelect.addEventListener('change', () => {
+    switchRuntime(els.runtimeSelect.value)
+      .then(() => {
+        refreshSlotList();
+        refreshSelectionPanel();
+        refreshTransformPanel();
+        syncStageControls();
+        setStatus(`Runtime selected: ${state.runtime.label}`, 'warn');
+      })
+      .catch(handleLoadError);
+  });
 
   els.animationSelect.addEventListener('change', () => {
     if (!state.spineObject) return;
@@ -170,7 +213,7 @@ function bindUI() {
     for (const input of els.transformInputs) {
       bone[input.dataset.transform] = Number(input.value || 0);
     }
-    state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+    updateWorldTransform();
     drawOverlay();
     refreshSelectionPanel();
     setStatus(`已应用 Bone：${bone.data.name}`, 'ok');
@@ -179,7 +222,7 @@ function bindUI() {
   els.resetBoneBtn.addEventListener('click', () => {
     if (!state.selected?.slot?.bone) return;
     state.selected.slot.bone.setToSetupPose();
-    state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+    updateWorldTransform();
     syncTransformInputsFromSelection();
     drawOverlay();
     refreshSelectionPanel();
@@ -238,8 +281,9 @@ async function loadSpine() {
   }
 
   els.loadBtn.disabled = true;
-  setStatus('正在解析资源并加载 Spine…', 'warn');
+  setStatus('Parsing resources and loading Spine...', 'warn');
 
+  await switchRuntime(els.runtimeSelect.value);
   cleanupCurrentSpine();
   revokeAllObjectUrls();
   state.loadCounter += 1;
@@ -247,49 +291,23 @@ async function loadSpine() {
   state.hiddenSlotAttachments.clear();
 
   const token = `spine-${Date.now()}-${state.loadCounter}`;
-  const skeletonAlias = `${token}-skeleton`;
-  const atlasAlias = `${token}-atlas`;
-
-  const skeletonUrl = registerUrl(URL.createObjectURL(skeletonFile));
-  const atlasUrl = registerUrl(URL.createObjectURL(atlasFile));
-  const atlasText = await atlasFile.text();
-
-  const pageNames = parseAtlasPageNames(atlasText);
-  const { imageMap, warnings } = await buildAtlasImageMap(pageNames, imageFiles);
   const skeletonScale = Number(els.skeletonScale.value || 1);
-  const skeletonAsset = await readSkeletonAsset(skeletonFile);
-
-  Cache.set(skeletonAlias, skeletonAsset);
-
-  await Assets.load({
-    alias: atlasAlias,
-    src: {
-      src: atlasUrl,
-      parser: 'spineTextureAtlasLoader',
-    },
-    data: { images: imageMap },
+  const { spineObject, warnings } = await state.runtime.loadSpine({
+    token,
+    skeletonFile,
+    atlasFile,
+    imageFiles,
+    skeletonScale,
+    registerUrl,
   });
-
-  let spineObject;
-  try {
-    spineObject = spine.Spine.from({
-      skeleton: skeletonAlias,
-      atlas: atlasAlias,
-      scale: skeletonScale,
-      autoUpdate: true,
-    });
-  } catch (error) {
-    throw wrapSpineLoadError(error);
-  }
 
   if (!spineObject?.skeleton) {
     throw new Error('Spine resources were read, but the runtime did not create a skeleton. Check the skeleton file format, atlas/image matching, and Spine export/runtime version compatibility.');
   }
 
   state.spineObject = spineObject;
-  state.bounds = new spine.SkeletonBounds();
-  state.overlay = new Graphics();
-  state.overlay.eventMode = 'none';
+  state.bounds = state.runtime.createSkeletonBounds();
+  state.overlay = state.runtime.createGraphics();
   spineObject.addChild(state.overlay);
   state.app.stage.addChild(spineObject);
 
@@ -303,40 +321,9 @@ async function loadSpine() {
   setPlayback(true);
   clearSelection(false);
 
-  const warnText = warnings.length ? `\n\n警告：\n- ${warnings.join('\n- ')}` : '';
-  setStatus(`加载成功。支持点击选择 slot / bone / attachment。${warnText}`, warnings.length ? 'warn' : 'ok');
+  const warnText = warnings.length ? `\n\nWarnings:\n- ${warnings.join('\n- ')}` : '';
+  setStatus(`Loaded with ${state.runtime.label}. You can click slots / bones / attachments.${warnText}`, warnings.length ? 'warn' : 'ok');
   els.loadBtn.disabled = false;
-}
-
-async function readSkeletonAsset(file) {
-  const lowerName = file.name.toLowerCase();
-
-  if (lowerName.endsWith('.json')) {
-    const text = await file.text();
-
-    try {
-      const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== 'object' || !('bones' in parsed)) {
-        throw new Error('JSON is missing the required "bones" field.');
-      }
-      return parsed;
-    } catch (error) {
-      throw new Error(`Failed to parse skeleton JSON: ${error?.message || error}`);
-    }
-  }
-
-  if (lowerName.endsWith('.skel') || lowerName.endsWith('.bytes')) {
-    return new Uint8Array(await file.arrayBuffer());
-  }
-
-  throw new Error(`Unsupported skeleton file type: ${file.name}. Please import a .json, .skel, or .bytes file.`);
-}
-
-function wrapSpineLoadError(error) {
-  const message = error?.message || String(error);
-  const versionHint = 'If this is a Spine version mismatch, align @esotericsoftware/spine-pixi-v8 major.minor with the Spine Editor export version.';
-
-  return new Error(`Failed to parse Spine data: ${message}. ${versionHint}`);
 }
 
 function handleLoadError(error) {
@@ -347,7 +334,7 @@ function handleLoadError(error) {
 
 function cleanupCurrentSpine() {
   if (state.spineObject) {
-    state.spineObject.destroy({ children: true });
+    state.runtime?.destroySpineObject(state.spineObject);
   }
   state.spineObject = null;
   state.overlay = null;
@@ -366,63 +353,6 @@ function revokeAllObjectUrls() {
 function registerUrl(url) {
   state.urls.push(url);
   return url;
-}
-
-function parseAtlasPageNames(atlasText) {
-  const lines = atlasText.split(/\r?\n/);
-  const pages = [];
-  let expectingPage = true;
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) {
-      expectingPage = true;
-      continue;
-    }
-    if (expectingPage && !line.includes(':')) {
-      pages.push(line);
-      expectingPage = false;
-    }
-  }
-
-  return pages;
-}
-
-async function buildAtlasImageMap(pageNames, imageFiles) {
-  const imageMap = {};
-  const warnings = [];
-  const byName = new Map(imageFiles.map((file) => [file.name.toLowerCase(), file]));
-  const byBase = new Map(imageFiles.map((file) => [baseName(file.name), file]));
-
-  if (pageNames.length === 0) {
-    if (imageFiles[0]) {
-      imageMap.default = await createTextureSource(imageFiles[0]);
-      warnings.push('未从 atlas 中解析出 page 名称，已退回使用首张图片作为默认贴图来源。');
-    }
-    return { imageMap, warnings };
-  }
-
-  for (const pageName of pageNames) {
-    let file = byName.get(pageName.toLowerCase()) || byBase.get(baseName(pageName));
-    if (!file) {
-      file = imageFiles[0];
-      warnings.push(`atlas 引用的页面 ${pageName} 未找到同名图片，已退回使用 ${file?.name || '首张图片'}。`);
-    }
-    if (file) {
-      imageMap[pageName] = await createTextureSource(file);
-    }
-  }
-
-  return { imageMap, warnings };
-}
-
-async function createTextureSource(file) {
-  const bitmap = await createImageBitmap(file);
-  return TextureSource.from(bitmap);
-}
-
-function baseName(name) {
-  return name.split('/').pop().split('\\').pop().toLowerCase();
 }
 
 function populateAnimationSelect() {
@@ -475,15 +405,15 @@ function forcePoseRefresh() {
   state.spineObject.state.update(0);
   state.spineObject.state.apply(state.spineObject.skeleton);
   applySlotVisibility();
-  state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+  updateWorldTransform();
   drawOverlay();
 }
 
 function fitSpineToView({ resetRotation = false } = {}) {
   if (!state.spineObject) return;
   const skeleton = state.spineObject.skeleton;
-  const offset = new spine.Vector2();
-  const size = new spine.Vector2();
+  const offset = state.runtime.createVector2();
+  const size = state.runtime.createVector2();
   const temp = [];
   skeleton.getBounds(offset, size, temp);
 
@@ -517,7 +447,7 @@ function onViewportWheel(event) {
   event.preventDefault();
 
   const currentScale = state.spineObject.scale.x || 1;
-  const rect = state.app.canvas.getBoundingClientRect();
+  const rect = state.runtime.getCanvas(state.app).getBoundingClientRect();
   const pointX = event.clientX - rect.left;
   const pointY = event.clientY - rect.top;
   const anchor = { x: pointX, y: pointY };
@@ -545,14 +475,22 @@ function setPlayback(playing) {
   els.playPauseBtn.textContent = playing ? '暂停' : '播放';
 }
 
+function updateWorldTransform() {
+  if (state.spineObject?.skeleton) {
+    state.runtime.updateWorldTransform(state.spineObject.skeleton);
+  }
+}
+
 function onStagePointerDown(event) {
   if (!state.spineObject) return;
   if (event.button !== 0) return;
+  const global = state.runtime.getPointerGlobal(event);
+  if (!global) return;
 
   state.pan.active = true;
   state.pan.dragging = false;
   state.pan.pointerId = event.pointerId;
-  state.pan.startPoint = { x: event.global.x, y: event.global.y };
+  state.pan.startPoint = { x: global.x, y: global.y };
   state.pan.startPosition = {
     x: state.spineObject.position.x,
     y: state.spineObject.position.y,
@@ -561,8 +499,10 @@ function onStagePointerDown(event) {
 
 function onStagePointerMove(event) {
   if (!state.spineObject || !isActivePanEvent(event)) return;
+  const global = state.runtime.getPointerGlobal(event);
+  if (!global) return;
 
-  const currentPoint = { x: event.global.x, y: event.global.y };
+  const currentPoint = { x: global.x, y: global.y };
   const moveX = currentPoint.x - state.pan.startPoint.x;
   const moveY = currentPoint.y - state.pan.startPoint.y;
   if (!state.pan.dragging && Math.hypot(moveX, moveY) < 4) return;
@@ -580,12 +520,14 @@ function onStagePointerMove(event) {
 
 function onStagePointerUp(event) {
   if (!state.spineObject || !isActivePanEvent(event)) return;
+  const global = state.runtime.getPointerGlobal(event);
+  if (!global) return;
   const wasDragging = state.pan.dragging;
   resetPanState();
 
   if (wasDragging) return;
 
-  const local = state.spineObject.toLocal(event.global);
+  const local = state.spineObject.toLocal(global);
   const hit = hitTest(local.x, local.y);
 
   if (!hit) {
@@ -748,7 +690,7 @@ function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
 
 function drawOverlay() {
   if (!state.overlay || !state.spineObject) return;
-  state.overlay.clear();
+  state.runtime.clearGraphics(state.overlay);
 
   if (els.showBoundsCheckbox.checked && state.bounds) {
     state.bounds.update(state.spineObject.skeleton, true);
@@ -774,20 +716,12 @@ function drawOverlay() {
 
   const bone = state.selected.slot?.bone;
   if (bone) {
-    state.overlay
-      .circle(bone.worldX, bone.worldY, 6)
-      .fill({ color: 0xffd166, alpha: 0.95 });
+    state.runtime.drawCircle(state.overlay, bone.worldX, bone.worldY, 6, 0xffd166, 0.95);
   }
 }
 
 function drawPolygon(vertices, color, alpha) {
-  if (!vertices || vertices.length < 4) return;
-  state.overlay.moveTo(vertices[0], vertices[1]);
-  for (let i = 2; i < vertices.length; i += 2) {
-    state.overlay.lineTo(vertices[i], vertices[i + 1]);
-  }
-  state.overlay.lineTo(vertices[0], vertices[1]);
-  state.overlay.stroke({ color, pixelLine: true, alpha });
+  state.runtime.strokePolygon(state.overlay, vertices, color, alpha);
 }
 
 function drawMeshOutline(vertices, triangles, color, alpha) {
@@ -795,12 +729,7 @@ function drawMeshOutline(vertices, triangles, color, alpha) {
     const ia = triangles[i] * 2;
     const ib = triangles[i + 1] * 2;
     const ic = triangles[i + 2] * 2;
-    state.overlay
-      .moveTo(vertices[ia], vertices[ia + 1])
-      .lineTo(vertices[ib], vertices[ib + 1])
-      .lineTo(vertices[ic], vertices[ic + 1])
-      .lineTo(vertices[ia], vertices[ia + 1])
-      .stroke({ color, pixelLine: true, alpha });
+    state.runtime.strokeTriangle(state.overlay, vertices, ia, ib, ic, color, alpha);
   }
 }
 
@@ -888,7 +817,7 @@ function onSlotToggleChange(event) {
   }
 
   applySlotVisibility();
-  state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+  updateWorldTransform();
   refreshSlotList();
   drawOverlay();
   setStatus(`Slot visibility updated: ${slotName}`, 'ok');
@@ -904,7 +833,7 @@ function onFilteredSlotsToggleChange(event) {
     clearSelection(false);
   }
   applySlotVisibility();
-  state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+  updateWorldTransform();
   refreshSlotList();
   drawOverlay();
   setStatus(`${visible ? 'Shown' : 'Hidden'} ${filteredSlots.length} filtered slots`, 'ok');
@@ -929,7 +858,7 @@ function refreshFilteredSlotsToggle(filteredSlots) {
 }
 
 async function exportPng(mode) {
-  if (!state.spineObject || !state.app?.renderer?.extract) return;
+  if (!state.spineObject || !state.app || !state.runtime) return;
 
   const snapshot = captureSkeletonSnapshot();
   const hiddenSlots = new Set(state.hiddenSlots);
@@ -945,10 +874,10 @@ async function exportPng(mode) {
       state.spineObject.skeleton.setToSetupPose();
       applySelectedSkin();
       applySlotVisibility();
-      state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+      updateWorldTransform();
     } else {
       applySlotVisibility();
-      state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+      updateWorldTransform();
     }
 
     const target = getPngExportTarget({
@@ -957,10 +886,7 @@ async function exportPng(mode) {
       spineObject: state.spineObject,
     });
 
-    state.app.renderer.extract.download({
-      target,
-      filename: buildExportFileName(mode),
-    });
+    state.runtime.downloadPng(state.app, target, buildExportFileName(mode));
     setStatus(`PNG exported: ${mode === 'setup' ? 'setup pose' : 'current pose'}`, 'ok');
   } finally {
     restoreSkeletonSnapshot(snapshot);
@@ -971,7 +897,7 @@ async function exportPng(mode) {
       state.hiddenSlotAttachments.set(slotName, attachment);
     }
     applySlotVisibility();
-    state.spineObject.skeleton.updateWorldTransform(spine.Physics.update);
+    updateWorldTransform();
     if (state.overlay) state.overlay.visible = overlayVisible;
     refreshSlotList();
     drawOverlay();
@@ -1058,7 +984,7 @@ function clearSelection(showMessage = true) {
   refreshSelectionPanel();
   refreshSlotList();
   refreshTransformPanel();
-  if (state.overlay) state.overlay.clear();
+  if (state.overlay) state.runtime.clearGraphics(state.overlay);
 }
 
 function refreshSelectionPanel() {

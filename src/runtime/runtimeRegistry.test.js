@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_RUNTIME_ID, getRuntimeOption, RUNTIME_OPTIONS } from './runtimeRegistry.js';
+import {
+  DEFAULT_RUNTIME_ID,
+  getRuntimeOption,
+  loadRuntime,
+  RUNTIME_OPTIONS,
+} from './runtimeRegistry.js';
 
 test('runtime registry keeps Spine 4.2 on Pixi 8 as the default', () => {
   assert.equal(DEFAULT_RUNTIME_ID, 'spine42-pixi8');
@@ -13,4 +18,11 @@ test('runtime registry exposes the Spine 4.1 PixiJS 6 compatibility option', () 
   assert.equal(option.spineVersion, '4.1');
   assert.equal(option.pixiVersion, '6.5.10');
   assert.equal(RUNTIME_OPTIONS.length, 2);
+});
+
+test('loadRuntime imports the requested runtime adapter', async () => {
+  const runtime = await loadRuntime('spine41-pixi6');
+
+  assert.equal(runtime.id, 'spine41-pixi6');
+  assert.equal(typeof runtime.createApplication, 'function');
 });

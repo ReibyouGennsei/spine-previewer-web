@@ -18,3 +18,11 @@ export const RUNTIME_OPTIONS = [
 export function getRuntimeOption(id) {
   return RUNTIME_OPTIONS.find((option) => option.id === id) || RUNTIME_OPTIONS[0];
 }
+
+export async function loadRuntime(id) {
+  const option = getRuntimeOption(id);
+  if (option.id === 'spine41-pixi6') {
+    return (await import('./pixi6Spine41Runtime.js')).default;
+  }
+  return (await import('./pixi8Spine42Runtime.js')).default;
+}

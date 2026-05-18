@@ -21,15 +21,21 @@ npm run dev
 
 ## 依赖版本注意
 
-`@esotericsoftware/spine-pixi-v8` 的 **major.minor** 版本要与你导出资源的 Spine Editor **major.minor** 版本对应。
+Spine 运行时的 **major.minor** 版本要与你导出资源的 Spine Editor **major.minor** 版本对应。
 
 当前项目默认：
 
 ```json
-"@esotericsoftware/spine-pixi-v8": "~4.2.0"
+"@esotericsoftware/spine-pixi-v8": "~4.2.0",
+"pixi.js": "^8.16.0"
 ```
 
-如果你的资源是 4.3 导出的，请把它改成 4.3 对应版本再重新安装。
+页面里的“运行时版本”可以选择：
+
+- `Spine 4.2 / PixiJS 8`：默认路径，适合 4.2 导出的资源。
+- `Spine 4.1 / PixiJS 6.5.10`：兼容路径，适合 4.1 导出的资源。
+
+如果资源版本和运行时不匹配，加载时通常会解析失败。遇到这类错误时，先切换到对应的运行时版本再重新加载。
 
 ## 点击精度说明
 

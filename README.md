@@ -6,6 +6,7 @@
 - 上传 `.atlas`
 - 上传一个或多个贴图 `.png/.jpg/.webp`
 - 切换动画 / skin
+- 拼合多个 skin（例如同时套用 `a + b`）
 - 点击部位查看 `slot / bone / attachment`
 - 修改当前 slot 对应 bone 的 `x / y / rotation / scaleX / scaleY`
 - 显示 Bounding Box 调试轮廓

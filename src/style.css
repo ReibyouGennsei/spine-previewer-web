@@ -393,6 +393,55 @@ button.primary:hover:not(:disabled) {
   accent-color: var(--accent);
 }
 
+.skin-merge-toggle {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.skin-merge-list {
+  display: grid;
+  gap: 6px;
+  max-height: 150px;
+  margin-bottom: 10px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.032);
+  scrollbar-color: #3f3f46 transparent;
+  scrollbar-width: thin;
+}
+
+.skin-merge-list[hidden] {
+  display: none;
+}
+
+.skin-merge-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.skin-merge-item input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.skin-merge-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .status,
 .summary {
   min-height: 0;

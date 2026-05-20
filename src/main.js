@@ -1,6 +1,12 @@
 import './style.css';
 import { getPngExportTarget } from './exportTarget.js';
 import { DEFAULT_RUNTIME_ID, loadRuntime, RUNTIME_OPTIONS } from './runtime/runtimeRegistry.js';
+import {
+  createCombinedSkin,
+  getDefaultMergedSkinNames,
+  getInitialSkinName,
+  getSkinsByName,
+} from './skinSelection.js';
 import { slotMatchesSearch } from './slotSearch.js';
 import { applyBulkSlotVisibility, getBulkSlotVisibilityState } from './slotVisibility.js';
 import {
@@ -25,6 +31,8 @@ const els = {
   loadBtn: document.getElementById('loadBtn'),
   animationSelect: document.getElementById('animationSelect'),
   skinSelect: document.getElementById('skinSelect'),
+  mergeSkinsCheckbox: document.getElementById('mergeSkinsCheckbox'),
+  mergedSkinList: document.getElementById('mergedSkinList'),
   playPauseBtn: document.getElementById('playPauseBtn'),
   refitBtn: document.getElementById('refitBtn'),
   resetPoseBtn: document.getElementById('resetPoseBtn'),
@@ -97,6 +105,7 @@ async function boot() {
   refreshSelectionPanel();
   refreshTransformPanel();
   syncStageControls();
+  syncSkinMergeControls();
   refreshSlotList();
 }
 
@@ -182,6 +191,15 @@ function bindUI() {
     forcePoseRefresh();
     fitSpineToView();
   });
+  els.mergeSkinsCheckbox.addEventListener('change', () => {
+    syncSkinMergeControls();
+    if (!state.spineObject) return;
+    applySelectedSkin();
+    forcePoseRefresh();
+    fitSpineToView();
+    setStatus(`Skin mode: ${getAppliedSkinLabel()}`, 'ok');
+  });
+  els.mergedSkinList.addEventListener('change', onMergedSkinListChange);
 
   els.loopCheckbox.addEventListener('change', () => {
     if (!state.spineObject) return;
@@ -312,7 +330,7 @@ async function loadSpine() {
   state.app.stage.addChild(spineObject);
 
   populateAnimationSelect();
-  populateSkinSelect();
+  const selectedSkinName = populateSkinSelect();
   refreshSlotList();
   applySelectedSkin();
   applySelectedAnimation();
@@ -322,7 +340,8 @@ async function loadSpine() {
   clearSelection(false);
 
   const warnText = warnings.length ? `\n\nWarnings:\n- ${warnings.join('\n- ')}` : '';
-  setStatus(`Loaded with ${state.runtime.label}. You can click slots / bones / attachments.${warnText}`, warnings.length ? 'warn' : 'ok');
+  const skinText = selectedSkinName ? ` Skin: ${selectedSkinName}.` : '';
+  setStatus(`Loaded with ${state.runtime.label}.${skinText} You can click slots / bones / attachments.${warnText}`, warnings.length ? 'warn' : 'ok');
   els.loadBtn.disabled = false;
 }
 
@@ -342,6 +361,7 @@ function cleanupCurrentSpine() {
   state.selected = null;
   state.hiddenSlots.clear();
   state.hiddenSlotAttachments.clear();
+  syncSkinMergeControls();
   refreshSlotList();
 }
 
@@ -368,6 +388,8 @@ function populateAnimationSelect() {
 
 function populateSkinSelect() {
   const skins = state.spineObject?.skeleton?.data?.skins || [];
+  const preferredSkinName = els.skinSelect.value;
+  const preferredMergedSkinNames = getCheckedMergedSkinNames();
   els.skinSelect.innerHTML = '';
   for (const skin of skins) {
     const option = document.createElement('option');
@@ -375,6 +397,54 @@ function populateSkinSelect() {
     option.textContent = skin.name;
     els.skinSelect.appendChild(option);
   }
+  els.skinSelect.value = getInitialSkinName(skins, preferredSkinName);
+  populateMergedSkinList(skins, preferredMergedSkinNames);
+  syncSkinMergeControls();
+  return getAppliedSkinLabel();
+}
+
+function populateMergedSkinList(skins, preferredMergedSkinNames = []) {
+  const availableNames = new Set(skins.map((skin) => skin.name));
+  const selectedNames = preferredMergedSkinNames.filter((name) => availableNames.has(name));
+  const defaultNames = selectedNames.length
+    ? selectedNames
+    : getDefaultMergedSkinNames(skins, els.skinSelect.value);
+  const checkedNames = new Set(defaultNames);
+
+  els.mergedSkinList.innerHTML = skins.map((skin) => `
+    <label class="skin-merge-item">
+      <input type="checkbox" data-skin-merge="${escapeHtml(skin.name)}" ${checkedNames.has(skin.name) ? 'checked' : ''} />
+      <span>${escapeHtml(skin.name)}</span>
+    </label>
+  `).join('');
+}
+
+function syncSkinMergeControls() {
+  const hasSpine = !!state.spineObject;
+  const merging = els.mergeSkinsCheckbox.checked;
+  els.mergeSkinsCheckbox.disabled = !hasSpine;
+  els.skinSelect.disabled = merging || !hasSpine;
+  els.mergedSkinList.hidden = !hasSpine || !merging;
+
+  for (const input of els.mergedSkinList.querySelectorAll('[data-skin-merge]')) {
+    input.disabled = !hasSpine || !merging;
+  }
+}
+
+function onMergedSkinListChange(event) {
+  if (!event.target.matches('[data-skin-merge]')) return;
+
+  if (getCheckedMergedSkinNames().length === 0) {
+    event.target.checked = true;
+    setStatus('至少保留一个皮肤用于拼合。', 'warn');
+    return;
+  }
+
+  if (!state.spineObject) return;
+  applySelectedSkin();
+  forcePoseRefresh();
+  fitSpineToView();
+  setStatus(`Skin mode: ${getAppliedSkinLabel()}`, 'ok');
 }
 
 function applySelectedAnimation() {
@@ -388,16 +458,38 @@ function applySelectedAnimation() {
 
 function applySelectedSkin() {
   if (!state.spineObject) return;
-  const skinName = els.skinSelect.value;
-  if (skinName) {
-    const skin = state.spineObject.skeleton.data.findSkin(skinName);
-    if (!skin) {
-      throw new Error(`Skin not found: ${skinName}`);
-    }
-    state.spineObject.skeleton.setSkin(skin);
-    state.spineObject.skeleton.setSlotsToSetupPose();
-    applySlotVisibility();
+  const skinNames = getAppliedSkinNames();
+  if (!skinNames.length) return;
+
+  const skins = getSkinsByName(state.spineObject.skeleton.data, skinNames);
+  const skin = createCombinedSkin(skins, `combined:${skinNames.join('+')}`);
+  if (!skin) return;
+
+  state.spineObject.skeleton.setSkin(skin);
+  state.spineObject.skeleton.setSlotsToSetupPose();
+  applySlotVisibility();
+}
+
+function getAppliedSkinNames() {
+  if (!els.mergeSkinsCheckbox.checked) {
+    return els.skinSelect.value ? [els.skinSelect.value] : [];
   }
+
+  const names = getCheckedMergedSkinNames();
+  return names.length ? names : (els.skinSelect.value ? [els.skinSelect.value] : []);
+}
+
+function getCheckedMergedSkinNames() {
+  return [...els.mergedSkinList.querySelectorAll('[data-skin-merge]:checked')]
+    .map((input) => input.dataset.skinMerge)
+    .filter(Boolean);
+}
+
+function getAppliedSkinLabel() {
+  const names = getAppliedSkinNames();
+  return els.mergeSkinsCheckbox.checked && names.length > 1
+    ? names.join(' + ')
+    : (names[0] || '-');
 }
 
 function forcePoseRefresh() {

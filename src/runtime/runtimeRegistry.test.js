@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_RUNTIME_ID,
+  getRecommendedRuntimeId,
+  getRuntimeCompatibility,
   getRuntimeOption,
   loadRuntime,
   RUNTIME_OPTIONS,
@@ -25,4 +27,20 @@ test('loadRuntime imports the requested runtime adapter', async () => {
 
   assert.equal(runtime.id, 'spine41-pixi6');
   assert.equal(typeof runtime.createApplication, 'function');
+});
+
+test('runtime registry recommends the runtime that natively supports a skeleton version', () => {
+  assert.equal(getRecommendedRuntimeId({ majorMinor: '4.0' }), 'spine41-pixi6');
+  assert.equal(getRecommendedRuntimeId({ majorMinor: '4.1' }), 'spine41-pixi6');
+  assert.equal(getRecommendedRuntimeId({ majorMinor: '4.2' }), 'spine42-pixi8');
+  assert.equal(getRecommendedRuntimeId({ majorMinor: '3.8' }), null);
+  assert.equal(getRecommendedRuntimeId(null), null);
+});
+
+test('runtime registry reports native, upgradable and unsupported combinations', () => {
+  assert.equal(getRuntimeCompatibility('spine41-pixi6', { majorMinor: '4.0' }), 'native');
+  assert.equal(getRuntimeCompatibility('spine42-pixi8', { majorMinor: '4.0' }), 'upgradable');
+  assert.equal(getRuntimeCompatibility('spine42-pixi8', { majorMinor: '4.0' }, { isBinary: true }), 'unsupported');
+  assert.equal(getRuntimeCompatibility('spine41-pixi6', { majorMinor: '4.2' }), 'unsupported');
+  assert.equal(getRuntimeCompatibility('spine42-pixi8', null), 'unknown');
 });

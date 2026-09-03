@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createCombinedSkin,
+  getAttachmentTypeName,
   getDefaultMergedSkinNames,
   getInitialSkinName,
   getSkinsByName,
@@ -126,4 +127,48 @@ test('combined skin adds selected skins in order', () => {
 
   assert.equal(combined.name, 'a+b');
   assert.deepEqual(combined.added, ['a', 'b']);
+});
+
+test('renderable skin detection handles pixi-spine numeric types and bundler-renamed constructors', () => {
+  class RegionAttachment2 {
+    constructor() {
+      this.type = 0;
+      this.name = 'body';
+      this.region = { texture: { baseTexture: { resource: {} } } };
+    }
+  }
+  const region = new RegionAttachment2();
+  // Runtime textures reference each other; walking them must never happen.
+  region.region.texture.baseTexture.resource.baseTexture = region.region.texture.baseTexture;
+  region.region.texture.baseTexture.owner = region;
+
+  const skin = { name: 'default', attachments: [undefined, { body: region }] };
+
+  assert.equal(skinHasRenderableAttachments(skin), true);
+});
+
+test('renderable skin detection rejects non-renderable numeric attachment types', () => {
+  const skin = { name: 'default', attachments: [{ mask: { type: 6, name: 'mask', vertices: [] } }] };
+
+  assert.equal(skinHasRenderableAttachments(skin), false);
+});
+
+test('renderable skin detection does not overflow on cyclic containers', () => {
+  const container = { name: 'a', nested: {} };
+  container.nested.parent = container;
+  const skin = { name: 'default', attachments: { slot: container } };
+
+  assert.equal(skinHasRenderableAttachments(skin), false);
+});
+
+test('getAttachmentTypeName maps strings, enum numbers and constructor names', () => {
+  assert.equal(getAttachmentTypeName({ type: 'Mesh' }), 'mesh');
+  assert.equal(getAttachmentTypeName({ type: 0 }), 'region');
+  assert.equal(getAttachmentTypeName({ type: 2 }), 'mesh');
+  assert.equal(getAttachmentTypeName({ constructor: { name: 'ClippingAttachment3' } }), 'clipping');
+  assert.equal(getAttachmentTypeName({ constructor: { name: 'BoundingBoxAttachment' } }), 'boundingbox');
+  assert.equal(getAttachmentTypeName({ triangles: [0, 1, 2] }), 'mesh');
+  assert.equal(getAttachmentTypeName({ worldVerticesLength: 8 }), 'region');
+  assert.equal(getAttachmentTypeName(null), '');
+  assert.equal(getAttachmentTypeName({ foo: 1 }), '');
 });

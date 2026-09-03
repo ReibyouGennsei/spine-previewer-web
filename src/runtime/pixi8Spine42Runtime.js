@@ -4,6 +4,7 @@ import {
   buildAtlasImageFileMap,
   parseAtlasPageNames,
   readSkeletonAsset,
+  upgradeSkeletonJsonForSpine42,
 } from './sharedSpineResourceUtils.js';
 
 export const runtime = {
@@ -42,6 +43,12 @@ export const runtime = {
   },
   updateWorldTransform(skeleton) {
     skeleton.updateWorldTransform(spine.Physics.update);
+  },
+  getPointerButton(event) {
+    return event.button ?? 0;
+  },
+  getPointerId(event) {
+    return event.pointerId ?? 0;
   },
   getPointerGlobal(event) {
     return event.global;
@@ -83,7 +90,8 @@ export const runtime = {
     const atlasText = await atlasFile.text();
     const pageNames = parseAtlasPageNames(atlasText);
     const { fileMap, warnings } = buildAtlasImageFileMap(pageNames, imageFiles);
-    const skeletonAsset = await readSkeletonAsset(skeletonFile);
+    // Spine 4.0 / 4.1 JSON is converted to the 4.2 layout so inherit modes and deform timelines survive.
+    const skeletonAsset = upgradeSkeletonJsonForSpine42(await readSkeletonAsset(skeletonFile));
     const imageMap = await createTextureSourceMap(fileMap);
 
     Cache.set(skeletonAlias, skeletonAsset);

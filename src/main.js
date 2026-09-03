@@ -1,8 +1,17 @@
 import './style.css';
 import { getPngExportTarget } from './exportTarget.js';
-import { DEFAULT_RUNTIME_ID, loadRuntime, RUNTIME_OPTIONS } from './runtime/runtimeRegistry.js';
+import {
+  DEFAULT_RUNTIME_ID,
+  getRecommendedRuntimeId,
+  getRuntimeCompatibility,
+  getRuntimeOption,
+  loadRuntime,
+  RUNTIME_OPTIONS,
+} from './runtime/runtimeRegistry.js';
+import { detectSkeletonVersionFromFile } from './runtime/sharedSpineResourceUtils.js';
 import {
   createCombinedSkin,
+  getAttachmentTypeName,
   getDefaultMergedSkinNames,
   getInitialSkinName,
   getSkinsByName,
@@ -62,6 +71,8 @@ const els = {
 };
 
 const state = {
+  skeletonVersion: null,
+  skeletonVersionPending: false,
   app: null,
   runtime: null,
   runtimeId: null,
@@ -164,7 +175,7 @@ function destroyCurrentApplication() {
 
 function bindUI() {
   els.loadBtn.addEventListener('click', () => loadSpine().catch(handleLoadError));
-  els.skeletonFile.addEventListener('change', refreshResourceSummary);
+  els.skeletonFile.addEventListener('change', () => onSkeletonFileChange().catch(handleLoadError));
   els.atlasFile.addEventListener('change', refreshResourceSummary);
   els.imageFiles.addEventListener('change', refreshResourceSummary);
   els.runtimeSelect.addEventListener('change', () => {
@@ -282,11 +293,80 @@ function refreshResourceSummary() {
 
   const lines = [
     `Skeleton：${skeleton ? skeleton.name : '未选择'}`,
+    `Spine 版本：${describeSkeletonVersion(skeleton)}`,
     `Atlas：${atlas ? atlas.name : '未选择'}`,
     `图片：${images.length ? images.map((f) => f.name).join(', ') : '未选择'}`,
   ];
 
   els.resourceSummary.textContent = lines.join('\n');
+}
+
+function describeSkeletonVersion(skeletonFile) {
+  if (!skeletonFile) return '未选择';
+  if (state.skeletonVersionPending) return '识别中…';
+  const version = state.skeletonVersion;
+  if (!version) return '未识别';
+  const recommendedId = getRecommendedRuntimeId(version);
+  if (!recommendedId) return `${version.version}（暂无匹配的运行时）`;
+  return `${version.version}（推荐 ${getRuntimeOption(recommendedId).label}）`;
+}
+
+async function onSkeletonFileChange() {
+  const skeletonFile = els.skeletonFile.files?.[0];
+  state.skeletonVersion = null;
+  state.skeletonVersionPending = !!skeletonFile;
+  refreshResourceSummary();
+  if (!skeletonFile) return;
+
+  const version = await detectSkeletonVersionFromFile(skeletonFile).catch(() => null);
+  if (els.skeletonFile.files?.[0] !== skeletonFile) return;
+  state.skeletonVersion = version;
+  state.skeletonVersionPending = false;
+  refreshResourceSummary();
+
+  if (!version) {
+    setStatus('无法从 skeleton 文件中识别 Spine 版本，将使用当前选择的运行时加载。', 'warn');
+    return;
+  }
+
+  const recommendedId = getRecommendedRuntimeId(version);
+  if (!recommendedId) {
+    setStatus(`检测到 Spine ${version.version} 导出的资源，当前没有对应的运行时（支持 4.0 – 4.2），加载可能失败。`, 'warn');
+    return;
+  }
+
+  const recommendedLabel = getRuntimeOption(recommendedId).label;
+  if (recommendedId === els.runtimeSelect.value) {
+    setStatus(`检测到 Spine ${version.version} 资源，与当前运行时 ${recommendedLabel} 匹配。`, 'ok');
+    return;
+  }
+
+  const previousLabel = getRuntimeOption(els.runtimeSelect.value).label;
+  els.runtimeSelect.value = recommendedId;
+  await switchRuntime(recommendedId);
+  refreshSlotList();
+  refreshSelectionPanel();
+  refreshTransformPanel();
+  syncStageControls();
+  setStatus(`检测到 Spine ${version.version} 资源，已自动从 ${previousLabel} 切换到 ${recommendedLabel}。`, 'ok');
+}
+
+function getVersionCompatibilityWarning(skeletonFile) {
+  const version = state.skeletonVersion;
+  if (!version) return '';
+  const isBinary = !/\.json$/i.test(skeletonFile.name);
+  const compatibility = getRuntimeCompatibility(state.runtimeId, version, { isBinary });
+  const currentLabel = getRuntimeOption(state.runtimeId).label;
+
+  if (compatibility === 'upgradable') {
+    const recommendedId = getRecommendedRuntimeId(version);
+    const hint = recommendedId ? `如需与编辑器完全一致的表现，请使用 ${getRuntimeOption(recommendedId).label}。` : '';
+    return `资源由 Spine ${version.version} 导出，已自动转换为 Spine ${getRuntimeOption(state.runtimeId).spineVersion} 格式加载。${hint}`;
+  }
+  if (compatibility === 'unsupported') {
+    return `资源由 Spine ${version.version} 导出，与当前运行时（${currentLabel}）不匹配，显示可能不正确。`;
+  }
+  return '';
 }
 
 async function loadSpine() {
@@ -319,6 +399,9 @@ async function loadSpine() {
     registerUrl,
   });
 
+  const compatibilityWarning = getVersionCompatibilityWarning(skeletonFile);
+  if (compatibilityWarning) warnings.push(compatibilityWarning);
+
   if (!spineObject?.skeleton) {
     throw new Error('Spine resources were read, but the runtime did not create a skeleton. Check the skeleton file format, atlas/image matching, and Spine export/runtime version compatibility.');
   }
@@ -347,7 +430,8 @@ async function loadSpine() {
 
 function handleLoadError(error) {
   console.error(error);
-  setStatus(`加载失败：${error?.message || error}`, 'error');
+  const versionHint = state.skeletonVersion ? `\n检测到的资源版本：Spine ${state.skeletonVersion.version}` : '';
+  setStatus(`加载失败：${error?.message || error}${versionHint}`, 'error');
   els.loadBtn.disabled = false;
 }
 
@@ -575,13 +659,13 @@ function updateWorldTransform() {
 
 function onStagePointerDown(event) {
   if (!state.spineObject) return;
-  if (event.button !== 0) return;
+  if (state.runtime.getPointerButton(event) !== 0) return;
   const global = state.runtime.getPointerGlobal(event);
   if (!global) return;
 
   state.pan.active = true;
   state.pan.dragging = false;
-  state.pan.pointerId = event.pointerId;
+  state.pan.pointerId = state.runtime.getPointerId(event);
   state.pan.startPoint = { x: global.x, y: global.y };
   state.pan.startPosition = {
     x: state.spineObject.position.x,
@@ -640,7 +724,7 @@ function onStagePointerUpOutside(event) {
 }
 
 function isActivePanEvent(event) {
-  return state.pan.active && state.pan.pointerId === event.pointerId;
+  return state.pan.active && state.pan.pointerId === state.runtime.getPointerId(event);
 }
 
 function resetPanState() {
@@ -1101,7 +1185,7 @@ function refreshSelectionPanel() {
     ['Slot', slot.data?.name || '-'],
     ['Bone', bone?.data?.name || '-'],
     ['Attachment', attachment?.name || '-'],
-    ['Attachment 类型', attachment?.constructor?.name || '-'],
+    ['Attachment 类型', getAttachmentTypeName(attachment) || attachment?.constructor?.name || '-'],
     ['Slot 索引', String(slot.data?.index ?? '-')],
     ['Bone 世界坐标', bone ? `${bone.worldX.toFixed(2)}, ${bone.worldY.toFixed(2)}` : '-'],
   ];

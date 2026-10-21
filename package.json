@@ -5,13 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test src/*.test.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test"
   },
   "dependencies": {
-    "@esotericsoftware/spine-pixi-v8": "~4.2.0",
-    "pixi.js": "^8.16.0"
+    "@pixi-spine/base": "4.0.6",
+    "@pixi-spine/runtime-3.7": "4.0.6",
+    "@pixi-spine/runtime-3.8": "4.0.6",
+    "@pixi-spine/runtime-4.0": "4.0.6",
+    "@pixi-spine/runtime-4.1": "4.0.6",
+    "pixi.js": "7.4.3",
+    "spine-pixi-4.2": "npm:@esotericsoftware/spine-pixi-v7@4.2.120",
+    "spine-pixi-4.3": "npm:@esotericsoftware/spine-pixi-v7@4.3.13"
   },
   "devDependencies": {
     "vite": "^7.1.0"
